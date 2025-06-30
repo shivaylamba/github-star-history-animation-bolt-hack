@@ -8,8 +8,24 @@ const Header: React.FC = () => {
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.8 }}
-      className="text-center mb-12"
+      className="text-center mb-12 relative"
     >
+      {/* Bolt Logo - Top Right */}
+      <div className="absolute top-0 right-0">
+        <a 
+          href="https://bolt.new/" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="block hover:scale-105 transition-transform duration-200"
+        >
+          <img 
+            src="/black_circle_360x360.png" 
+            alt="Powered by Bolt" 
+            className="w-16 h-16 md:w-20 md:h-20"
+          />
+        </a>
+      </div>
+
       <div className="flex justify-center items-center gap-3 mb-4">
         <div className="p-3 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl">
           <Star className="w-8 h-8 text-white" />
