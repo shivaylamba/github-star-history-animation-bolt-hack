@@ -67,9 +67,9 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
         workerScript: '/gif.worker.js'
       });
       
-      // Animation settings for GIF
-      const animationDuration = 5000; // 5 seconds for GIF
-      const fps = 15; // Better FPS for smoother animation
+      // Animation settings for GIF - longer duration for better visibility
+      const animationDuration = 6000; // 6 seconds for GIF
+      const fps = 20; // Higher FPS for smoother animation
       const frameDelay = 1000 / fps;
       const totalFrames = (animationDuration / 1000) * fps;
       
@@ -77,6 +77,14 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
       const sortedHistory = [...data.history].sort((a, b) => 
         new Date(a.date).getTime() - new Date(b.date).getTime()
       );
+      
+      // Ensure we have at least 2 data points for animation
+      if (sortedHistory.length < 2) {
+        // Add a starting point with 0 stars if we only have one data point
+        const firstDate = new Date(sortedHistory[0]?.date || data.createdAt);
+        const startDate = new Date(firstDate.getTime() - 30 * 24 * 60 * 60 * 1000); // 30 days before
+        sortedHistory.unshift({ date: startDate.toISOString(), stars: 0 });
+      }
       
       // Chart dimensions (scaled for smaller canvas)
       const chartX = 80;
@@ -108,7 +116,7 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
       let currentFrame = 0;
       
       const generateFrame = () => {
-        const animationProgress = Math.min(currentFrame / totalFrames, 1);
+        const animationProgress = currentFrame / totalFrames;
         setGifProgress(Math.floor(animationProgress * 100));
         
         // Clear canvas
@@ -151,83 +159,134 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
           ctx.stroke();
         }
         
-        // Calculate visible points based on animation progress
+        // Calculate current animation state
         const totalDataPoints = sortedHistory.length;
-        const visiblePointsCount = Math.max(2, Math.ceil(totalDataPoints * animationProgress));
         
-        // Get the current star count for this frame
-        const currentDataIndex = Math.min(visiblePointsCount - 1, totalDataPoints - 1);
-        const currentStars = sortedHistory[currentDataIndex]?.stars || 0;
-        
-        // Draw animated line with gradual progression
-        if (visiblePointsCount > 1) {
-          const lineGradient = ctx.createLinearGradient(chartX, 0, chartX + chartWidth, 0);
-          lineGradient.addColorStop(0, '#3b82f6');
-          lineGradient.addColorStop(1, '#8b5cf6');
+        // For the first 10% of animation, show just the starting point
+        if (animationProgress < 0.1) {
+          const startPoint = sortedHistory[0];
+          const coords = getChartCoordinates(startPoint, 0);
           
-          ctx.strokeStyle = lineGradient;
-          ctx.lineWidth = 2;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          ctx.beginPath();
-          
-          // Draw line up to current visible points
-          for (let i = 0; i < visiblePointsCount; i++) {
-            const dataPoint = sortedHistory[i];
-            const coords = getChartCoordinates(dataPoint, i);
-            
-            if (i === 0) {
-              ctx.moveTo(coords.x, coords.y);
-            } else {
-              ctx.lineTo(coords.x, coords.y);
-            }
-          }
-          ctx.stroke();
-          
-          // Draw data points up to current visible points
+          // Draw starting point
           ctx.fillStyle = '#3b82f6';
-          for (let i = 0; i < visiblePointsCount; i++) {
-            const dataPoint = sortedHistory[i];
-            const coords = getChartCoordinates(dataPoint, i);
-            
-            ctx.beginPath();
-            ctx.arc(coords.x, coords.y, 2, 0, 2 * Math.PI);
-            ctx.fill();
-            
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-          }
+          ctx.beginPath();
+          ctx.arc(coords.x, coords.y, 4, 0, 2 * Math.PI);
+          ctx.fill();
           
-          // Highlight the current/latest point with a larger dot
-          if (currentDataIndex >= 0 && currentDataIndex < sortedHistory.length) {
-            const currentPoint = sortedHistory[currentDataIndex];
-            const currentCoords = getChartCoordinates(currentPoint, currentDataIndex);
-            
-            ctx.fillStyle = '#f59e0b';
-            ctx.beginPath();
-            ctx.arc(currentCoords.x, currentCoords.y, 4, 0, 2 * Math.PI);
-            ctx.fill();
-            
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-          }
-        }
-        
-        // Star count (larger and more prominent)
-        ctx.fillStyle = '#1e293b';
-        ctx.font = 'bold 28px Arial, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(`⭐ ${currentStars.toLocaleString()} Stars`, canvas.width / 2, canvas.height - 80);
-        
-        // Show current date
-        if (currentDataIndex >= 0 && currentDataIndex < sortedHistory.length) {
-          const currentDate = new Date(sortedHistory[currentDataIndex].date);
+          // Show starting star count
+          ctx.fillStyle = '#1e293b';
+          ctx.font = 'bold 28px Arial, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(`⭐ ${startPoint.stars.toLocaleString()} Stars`, canvas.width / 2, canvas.height - 80);
+          
+          // Show starting date
+          const startDate = new Date(startPoint.date);
           ctx.fillStyle = '#64748b';
           ctx.font = '14px Arial, sans-serif';
           ctx.fillText(
-            currentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' }), 
+            startDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' }), 
+            canvas.width / 2, 
+            canvas.height - 55
+          );
+        } else {
+          // Main animation: gradually reveal more data points
+          const adjustedProgress = (animationProgress - 0.1) / 0.9; // Normalize to 0-1
+          const visiblePointsCount = Math.max(1, Math.min(totalDataPoints, Math.ceil(totalDataPoints * adjustedProgress)));
+          
+          // Calculate current interpolated values for smooth animation
+          let currentStars = 0;
+          let currentDate = sortedHistory[0].date;
+          
+          if (visiblePointsCount >= totalDataPoints) {
+            // Show final values
+            currentStars = sortedHistory[totalDataPoints - 1].stars;
+            currentDate = sortedHistory[totalDataPoints - 1].date;
+          } else if (visiblePointsCount > 1) {
+            // Interpolate between data points for smooth star counting
+            const exactIndex = (totalDataPoints - 1) * adjustedProgress;
+            const lowerIndex = Math.floor(exactIndex);
+            const upperIndex = Math.min(lowerIndex + 1, totalDataPoints - 1);
+            const fraction = exactIndex - lowerIndex;
+            
+            const lowerPoint = sortedHistory[lowerIndex];
+            const upperPoint = sortedHistory[upperIndex];
+            
+            // Smooth interpolation of star count
+            currentStars = Math.floor(lowerPoint.stars + (upperPoint.stars - lowerPoint.stars) * fraction);
+            currentDate = upperPoint.date;
+          } else {
+            currentStars = sortedHistory[0].stars;
+            currentDate = sortedHistory[0].date;
+          }
+        
+          // Draw animated line with gradual progression
+          if (visiblePointsCount > 1) {
+            const lineGradient = ctx.createLinearGradient(chartX, 0, chartX + chartWidth, 0);
+            lineGradient.addColorStop(0, '#3b82f6');
+            lineGradient.addColorStop(1, '#8b5cf6');
+            
+            ctx.strokeStyle = lineGradient;
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            
+            // Draw line up to current visible points
+            for (let i = 0; i < visiblePointsCount; i++) {
+              const dataPoint = sortedHistory[i];
+              const coords = getChartCoordinates(dataPoint, i);
+              
+              if (i === 0) {
+                ctx.moveTo(coords.x, coords.y);
+              } else {
+                ctx.lineTo(coords.x, coords.y);
+              }
+            }
+            ctx.stroke();
+            
+            // Draw data points up to current visible points
+            ctx.fillStyle = '#3b82f6';
+            for (let i = 0; i < visiblePointsCount; i++) {
+              const dataPoint = sortedHistory[i];
+              const coords = getChartCoordinates(dataPoint, i);
+              
+              ctx.beginPath();
+              ctx.arc(coords.x, coords.y, 3, 0, 2 * Math.PI);
+              ctx.fill();
+              
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            }
+            
+            // Highlight the current/latest point with a larger dot
+            if (visiblePointsCount > 0) {
+              const currentPoint = sortedHistory[Math.min(visiblePointsCount - 1, totalDataPoints - 1)];
+              const currentCoords = getChartCoordinates(currentPoint, Math.min(visiblePointsCount - 1, totalDataPoints - 1));
+              
+              ctx.fillStyle = '#f59e0b';
+              ctx.beginPath();
+              ctx.arc(currentCoords.x, currentCoords.y, 5, 0, 2 * Math.PI);
+              ctx.fill();
+              
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+            }
+          }
+          
+          // Star count (animated counting)
+          ctx.fillStyle = '#1e293b';
+          ctx.font = 'bold 28px Arial, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(`⭐ ${currentStars.toLocaleString()} Stars`, canvas.width / 2, canvas.height - 80);
+          
+          // Show current date
+          const displayDate = new Date(currentDate);
+          ctx.fillStyle = '#3b82f6';
+          ctx.font = '14px Arial, sans-serif';
+          ctx.fillText(
+            displayDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' }), 
             canvas.width / 2, 
             canvas.height - 55
           );
