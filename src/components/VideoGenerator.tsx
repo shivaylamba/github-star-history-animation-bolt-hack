@@ -1,7 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Video, Download, Play, Settings, Loader2, CheckCircle } from 'lucide-react';
+import { Video, Download, Play, Settings, Loader2, CheckCircle, Image } from 'lucide-react';
 import { StarHistoryData } from '../types';
+// @ts-ignore
+import GIF from 'gif.js';
 
 interface VideoGeneratorProps {
   data: StarHistoryData;
@@ -12,6 +14,9 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
   const [generated, setGenerated] = useState(false);
   const [progress, setProgress] = useState(0);
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
+  const [gifBlob, setGifBlob] = useState<Blob | null>(null);
+  const [generatingGif, setGeneratingGif] = useState(false);
+  const [gifProgress, setGifProgress] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const handleGenerateVideo = async () => {
@@ -26,6 +31,212 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
     } finally {
       setGenerating(false);
     }
+  };
+
+  const handleGenerateGif = async () => {
+    setGeneratingGif(true);
+    setGifProgress(0);
+    
+    try {
+      await generateGifAnimation();
+    } catch (error) {
+      console.error('GIF generation failed:', error);
+    } finally {
+      setGeneratingGif(false);
+    }
+  };
+
+  const generateGifAnimation = async (): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 800; // Smaller size for GIF to reduce file size
+      canvas.height = 600;
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'));
+        return;
+      }
+      
+      // Initialize GIF.js
+      const gif = new GIF({
+        workers: 2,
+        quality: 10,
+        width: canvas.width,
+        height: canvas.height,
+        workerScript: '/gif.worker.js'
+      });
+      
+      // Animation settings for GIF
+      const animationDuration = 4000; // 4 seconds for GIF
+      const fps = 10; // Lower FPS for smaller file size
+      const frameDelay = 1000 / fps;
+      const totalFrames = (animationDuration / 1000) * fps;
+      
+      // Sort history data by date
+      const sortedHistory = [...data.history].sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+      
+      // Chart dimensions (scaled for smaller canvas)
+      const chartX = 80;
+      const chartY = 120;
+      const chartWidth = canvas.width - 160;
+      const chartHeight = 300;
+      const maxStars = Math.max(...sortedHistory.map(h => h.stars));
+      
+      // Time-based positioning
+      const startTime = new Date(sortedHistory[0].date).getTime();
+      const endTime = new Date(sortedHistory[sortedHistory.length - 1].date).getTime();
+      const totalTimeSpan = endTime - startTime;
+      
+      const getChartCoordinates = (dataPoint: { date: string; stars: number }, index: number) => {
+        let xPosition;
+        if (totalTimeSpan > 0) {
+          const pointTime = new Date(dataPoint.date).getTime();
+          const timeProgress = (pointTime - startTime) / totalTimeSpan;
+          xPosition = chartX + timeProgress * chartWidth;
+        } else {
+          xPosition = chartX + (index / Math.max(1, sortedHistory.length - 1)) * chartWidth;
+        }
+        
+        const yPosition = chartY + chartHeight - (dataPoint.stars / maxStars) * chartHeight;
+        return { x: xPosition, y: yPosition };
+      };
+      
+      // Generate frames
+      let currentFrame = 0;
+      
+      const generateFrame = () => {
+        const animationProgress = Math.min(currentFrame / totalFrames, 1);
+        setGifProgress(Math.floor(animationProgress * 100));
+        
+        // Clear canvas
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Background gradient
+        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, '#f8fafc');
+        gradient.addColorStop(1, '#e2e8f0');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Title (smaller font for GIF)
+        ctx.fillStyle = '#1e293b';
+        ctx.font = 'bold 24px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(data.repo, canvas.width / 2, 40);
+        
+        // Subtitle
+        ctx.fillStyle = '#64748b';
+        ctx.font = '16px Arial, sans-serif';
+        ctx.fillText('Star Growth Animation', canvas.width / 2, 65);
+        
+        // Chart background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(chartX, chartY, chartWidth, chartHeight);
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(chartX, chartY, chartWidth, chartHeight);
+        
+        // Grid lines
+        ctx.strokeStyle = '#f1f5f9';
+        ctx.lineWidth = 0.5;
+        for (let i = 1; i < 6; i++) {
+          const y = chartY + (chartHeight / 6) * i;
+          ctx.beginPath();
+          ctx.moveTo(chartX, y);
+          ctx.lineTo(chartX + chartWidth, y);
+          ctx.stroke();
+        }
+        
+        // Calculate visible points
+        const totalDataPoints = sortedHistory.length;
+        const visiblePointsCount = Math.max(1, Math.floor(totalDataPoints * animationProgress));
+        
+        // Draw animated line
+        if (totalDataPoints > 1 && visiblePointsCount > 1) {
+          const lineGradient = ctx.createLinearGradient(chartX, 0, chartX + chartWidth, 0);
+          lineGradient.addColorStop(0, '#3b82f6');
+          lineGradient.addColorStop(1, '#8b5cf6');
+          
+          ctx.strokeStyle = lineGradient;
+          ctx.lineWidth = 3;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.beginPath();
+          
+          for (let i = 0; i < visiblePointsCount; i++) {
+            const dataPoint = sortedHistory[i];
+            const coords = getChartCoordinates(dataPoint, i);
+            
+            if (i === 0) {
+              ctx.moveTo(coords.x, coords.y);
+            } else {
+              ctx.lineTo(coords.x, coords.y);
+            }
+          }
+          ctx.stroke();
+          
+          // Draw points
+          ctx.fillStyle = '#3b82f6';
+          for (let i = 0; i < visiblePointsCount; i++) {
+            const dataPoint = sortedHistory[i];
+            const coords = getChartCoordinates(dataPoint, i);
+            
+            ctx.beginPath();
+            ctx.arc(coords.x, coords.y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+        }
+        
+        // Current stats
+        const currentStars = visiblePointsCount > 0 && visiblePointsCount <= totalDataPoints 
+          ? sortedHistory[visiblePointsCount - 1].stars 
+          : 0;
+        
+        // Star count (larger and more prominent)
+        ctx.fillStyle = '#1e293b';
+        ctx.font = 'bold 32px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`⭐ ${currentStars.toLocaleString()} Stars`, canvas.width / 2, canvas.height - 80);
+        
+        // Additional info
+        ctx.fillStyle = '#64748b';
+        ctx.font = '14px Arial, sans-serif';
+        const infoText = `${data.language} • Created ${new Date(data.createdAt).getFullYear()}`;
+        ctx.fillText(infoText, canvas.width / 2, canvas.height - 50);
+        
+        // Add frame to GIF
+        gif.addFrame(canvas, { delay: frameDelay });
+        
+        currentFrame++;
+        
+        if (currentFrame <= totalFrames) {
+          // Continue generating frames
+          setTimeout(generateFrame, 10);
+        } else {
+          // Render GIF
+          gif.on('finished', (blob: Blob) => {
+            setGifBlob(blob);
+            resolve();
+          });
+          
+          gif.on('progress', (progress: number) => {
+            setGifProgress(Math.floor(50 + progress * 50)); // 50-100% for rendering
+          });
+          
+          gif.render();
+        }
+      };
+      
+      generateFrame();
+    });
   };
 
   const generateCanvasVideo = async (): Promise<void> => {
@@ -246,11 +457,26 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
     }
   };
 
+  const handleDownloadGif = () => {
+    if (gifBlob) {
+      const url = URL.createObjectURL(gifBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${data.repo.replace('/', '-')}-star-history.gif`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  };
+
   const videoSettings = [
     { label: 'Duration', value: '8 seconds' },
     { label: 'Resolution', value: '1920x1080' },
     { label: 'Format', value: 'WebM' },
-    { label: 'FPS', value: '30' }
+    { label: 'FPS', value: '30' },
+    { label: 'GIF Duration', value: '4 seconds' },
+    { label: 'GIF Size', value: '800x600' }
   ];
 
   return (
@@ -355,6 +581,31 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
               )}
             </motion.button>
 
+            <motion.button
+              onClick={handleGenerateGif}
+              disabled={generatingGif}
+              whileHover={{ scale: generatingGif ? 1 : 1.02 }}
+              whileTap={{ scale: generatingGif ? 1 : 0.98 }}
+              className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white py-3 px-6 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2"
+            >
+              {generatingGif ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Generating GIF... {gifProgress}%
+                </>
+              ) : gifBlob ? (
+                <>
+                  <CheckCircle className="w-5 h-5" />
+                  GIF Generated
+                </>
+              ) : (
+                <>
+                  <Image className="w-5 h-5" />
+                  Generate GIF
+                </>
+              )}
+            </motion.button>
+
             {generated && videoBlob && (
               <motion.button
                 initial={{ opacity: 0, y: 10 }}
@@ -368,10 +619,24 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
                 Download Video
               </motion.button>
             )}
+
+            {gifBlob && (
+              <motion.button
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                onClick={handleDownloadGif}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 px-6 rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2"
+              >
+                <Download className="w-5 h-5" />
+                Download GIF
+              </motion.button>
+            )}
           </div>
 
           <div className="text-xs text-gray-500">
-            <p>The generated video will show an animated chart of your repository's real star growth over time, perfect for sharing on social media platforms.</p>
+            <p>Generate both video and GIF formats of your repository's star growth animation. GIFs are perfect for social media and have smaller file sizes.</p>
           </div>
         </div>
       </div>
