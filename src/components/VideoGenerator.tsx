@@ -68,8 +68,8 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
       });
       
       // Animation settings for GIF
-      const animationDuration = 4000; // 4 seconds for GIF
-      const fps = 10; // Lower FPS for smaller file size
+      const animationDuration = 5000; // 5 seconds for GIF
+      const fps = 15; // Better FPS for smoother animation
       const frameDelay = 1000 / fps;
       const totalFrames = (animationDuration / 1000) * fps;
       
@@ -151,22 +151,27 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
           ctx.stroke();
         }
         
-        // Calculate visible points
+        // Calculate visible points based on animation progress
         const totalDataPoints = sortedHistory.length;
-        const visiblePointsCount = Math.max(1, Math.floor(totalDataPoints * animationProgress));
+        const visiblePointsCount = Math.max(2, Math.ceil(totalDataPoints * animationProgress));
         
-        // Draw animated line
-        if (totalDataPoints > 1 && visiblePointsCount > 1) {
+        // Get the current star count for this frame
+        const currentDataIndex = Math.min(visiblePointsCount - 1, totalDataPoints - 1);
+        const currentStars = sortedHistory[currentDataIndex]?.stars || 0;
+        
+        // Draw animated line with gradual progression
+        if (visiblePointsCount > 1) {
           const lineGradient = ctx.createLinearGradient(chartX, 0, chartX + chartWidth, 0);
           lineGradient.addColorStop(0, '#3b82f6');
           lineGradient.addColorStop(1, '#8b5cf6');
           
           ctx.strokeStyle = lineGradient;
-          ctx.lineWidth = 3;
+          ctx.lineWidth = 2;
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
           ctx.beginPath();
           
+          // Draw line up to current visible points
           for (let i = 0; i < visiblePointsCount; i++) {
             const dataPoint = sortedHistory[i];
             const coords = getChartCoordinates(dataPoint, i);
@@ -179,38 +184,60 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
           }
           ctx.stroke();
           
-          // Draw points
+          // Draw data points up to current visible points
           ctx.fillStyle = '#3b82f6';
           for (let i = 0; i < visiblePointsCount; i++) {
             const dataPoint = sortedHistory[i];
             const coords = getChartCoordinates(dataPoint, i);
             
             ctx.beginPath();
-            ctx.arc(coords.x, coords.y, 3, 0, 2 * Math.PI);
+            ctx.arc(coords.x, coords.y, 2, 0, 2 * Math.PI);
             ctx.fill();
             
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 1;
             ctx.stroke();
           }
+          
+          // Highlight the current/latest point with a larger dot
+          if (currentDataIndex >= 0 && currentDataIndex < sortedHistory.length) {
+            const currentPoint = sortedHistory[currentDataIndex];
+            const currentCoords = getChartCoordinates(currentPoint, currentDataIndex);
+            
+            ctx.fillStyle = '#f59e0b';
+            ctx.beginPath();
+            ctx.arc(currentCoords.x, currentCoords.y, 4, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
         }
-        
-        // Current stats
-        const currentStars = visiblePointsCount > 0 && visiblePointsCount <= totalDataPoints 
-          ? sortedHistory[visiblePointsCount - 1].stars 
-          : 0;
         
         // Star count (larger and more prominent)
         ctx.fillStyle = '#1e293b';
-        ctx.font = 'bold 32px Arial, sans-serif';
+        ctx.font = 'bold 28px Arial, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(`⭐ ${currentStars.toLocaleString()} Stars`, canvas.width / 2, canvas.height - 80);
         
+        // Show current date
+        if (currentDataIndex >= 0 && currentDataIndex < sortedHistory.length) {
+          const currentDate = new Date(sortedHistory[currentDataIndex].date);
+          ctx.fillStyle = '#64748b';
+          ctx.font = '14px Arial, sans-serif';
+          ctx.fillText(
+            currentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' }), 
+            canvas.width / 2, 
+            canvas.height - 55
+          );
+        }
+        
         // Additional info
         ctx.fillStyle = '#64748b';
-        ctx.font = '14px Arial, sans-serif';
+        ctx.font = '12px Arial, sans-serif';
         const infoText = `${data.language} • Created ${new Date(data.createdAt).getFullYear()}`;
-        ctx.fillText(infoText, canvas.width / 2, canvas.height - 50);
+        ctx.fillText(infoText, canvas.width / 2, canvas.height - 30);
         
         // Add frame to GIF
         gif.addFrame(canvas, { delay: frameDelay });
@@ -228,7 +255,7 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({ data }) => {
           });
           
           gif.on('progress', (progress: number) => {
-            setGifProgress(Math.floor(50 + progress * 50)); // 50-100% for rendering
+            setGifProgress(Math.floor(50 + progress * 50)); // 50-100% for GIF rendering
           });
           
           gif.render();
